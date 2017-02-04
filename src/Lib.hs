@@ -12,9 +12,10 @@ import           Control.Lens
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
 import           Data.Aeson                (FromJSON, ToJSON)
+import           Data.Aeson.TH
+import           Data.Char                 (toLower)
 import           Data.Maybe
 import           Data.Monoid               ((<>))
-import           Data.Text
 import qualified Data.Text                 as T
 import qualified Data.Text.Lazy            as TL
 import           GHC.Generics
@@ -36,8 +37,9 @@ data ArticlePreview = ArticlePreview
 
 makeFields ''ArticlePreview
 
-instance ToJSON ArticlePreview
-instance FromJSON ArticlePreview
+deriveJSON
+  defaultOptions {fieldLabelModifier = (_head %~ toLower) . drop 15}
+  ''ArticlePreview
 
 firefoxConfig :: WDConfig
 firefoxConfig = defaultConfig
@@ -81,7 +83,7 @@ elemToArticlePreview e = do
   authorUrl <- getUrlFromDef e ".impressum__author" "<Failed to get author url>"
   date <- getTextFromDef e ".impressum__date" "<Failed to get date>"
   category <- getTextFromDef e ".impressum__rubric" "<Failed to get category>"
-  categoryUrl <- getUrlFromDef e ".impressum__rubric" "<Failed to get category>"
+  categoryUrl <- getUrlFromDef e ".impressum__rubric" "<Failed to get category url>"
   commentsCountStr <- getTextFromDef e ".comments__count" "<Failed to get comments count>"
   let commentsCount = readMay $ T.unpack commentsCountStr
   return ArticlePreview {
