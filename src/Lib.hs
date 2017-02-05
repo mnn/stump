@@ -8,12 +8,15 @@
 
 module Lib where
 
+import           Control.Arrow
 import           Control.Lens
+import           Control.Lens.Operators
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
 import           Data.Aeson                (FromJSON, ToJSON)
 import           Data.Aeson.TH
 import           Data.Char                 (toLower)
+import           Data.List
 import           Data.Maybe
 import           Data.Monoid               ((<>))
 import qualified Data.Text                 as T
@@ -26,6 +29,7 @@ import           Test.WebDriver.Commands
 
 data ArticlePreview = ArticlePreview
   { _articlePreviewName          :: T.Text
+  , _articlePreviewUrl           :: T.Text
   , _articlePreviewPerex         :: T.Text
   , _articlePreviewAuthorName    :: T.Text
   , _articlePreviewAuthorUrl     :: T.Text
@@ -58,10 +62,14 @@ findElemFromMay e sel = do
   elems <- findElemsFrom e $ ByCSS sel
   return $ headMay elems
 
+getTextFromMay :: Element -> T.Text -> WD (Maybe T.Text)
+getTextFromMay e sel = do
+  may <- findElemFromMay e sel
+  mapM getText may
+
 getTextFromDef :: Element -> T.Text -> T.Text -> WD T.Text
 getTextFromDef e sel def = do
-  may <- findElemFromMay e sel
-  textMay <- mapM getText may
+  textMay <- getTextFromMay e sel
   return $ fromMaybe def textMay
 
 getUrl :: T.Text -> Element -> WD T.Text
@@ -75,9 +83,11 @@ getUrlFromDef e sel def = do
   textMay <- mapM (getUrl def) may
   return $ fromMaybe def textMay
 
-elemToArticlePreview :: Element -> WD ArticlePreview
+elemToArticlePreview :: Element -> WD (Maybe ArticlePreview)
 elemToArticlePreview e = do
-  name <- getTextFromDef e ".article__heading" "<Failed to get name>"
+  nameMay <- getTextFromMay e "h3.article__heading, h3.opener__heading"
+  let name = fromMaybe "<Failed to get name>" nameMay
+  url <- getUrlFromDef e "a.link-block" "<Failed to get url>"
   perex <- getTextFromDef e ".perex" "<Failed to get perex>"
   author <- getTextFromDef e ".impressum__author" "<Failed to get author>"
   authorUrl <- getUrlFromDef e ".impressum__author" "<Failed to get author url>"
@@ -86,21 +96,26 @@ elemToArticlePreview e = do
   categoryUrl <- getUrlFromDef e ".impressum__rubric" "<Failed to get category url>"
   commentsCountStr <- getTextFromDef e ".comments__count" "<Failed to get comments count>"
   let commentsCount = readMay $ T.unpack commentsCountStr
-  return ArticlePreview {
-    _articlePreviewName = name
-  , _articlePreviewPerex = perex
-  , _articlePreviewAuthorName = author
-  , _articlePreviewAuthorUrl = authorUrl
-  , _articlePreviewDate = date
-  , _articlePreviewCategoryName = category
-  , _articlePreviewCategoryUrl = categoryUrl
-  , _articlePreviewCommentsCount = commentsCount
-  }
+  return $ if isNothing nameMay || T.null name then Nothing
+           else Just ArticlePreview { _articlePreviewName = name
+                                    , _articlePreviewUrl = url
+                                    , _articlePreviewPerex = perex
+                                    , _articlePreviewAuthorName = author
+                                    , _articlePreviewAuthorUrl = authorUrl
+                                    , _articlePreviewDate = date
+                                    , _articlePreviewCategoryName = category
+                                    , _articlePreviewCategoryUrl = categoryUrl
+                                    , _articlePreviewCommentsCount = commentsCount
+                                    }
 
 extractArticlePreviews :: WD [ArticlePreview]
 extractArticlePreviews = do
   openPage homeUrl
-  -- TODO: featured article
-  articleElems <- findElems $ ByCSS ".article.article--content"
-  articles <- mapM elemToArticlePreview articleElems
-  return articles
+  saveScreenshot "home.png"
+  articleElems <- findElems $ ByCSS ".opener__body, .article.article--content"
+  allArticlesMay <- mapM elemToArticlePreview articleElems
+  let allArticles = catMaybes allArticlesMay
+  let articles = filter (isFromZdrojak >>> not) allArticles
+  return articles where
+  isFromZdrojak :: ArticlePreview -> Bool
+  isFromZdrojak a = (a^.url) & T.isInfixOf "zdrojak.cz"

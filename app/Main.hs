@@ -2,8 +2,13 @@
 
 module Main where
 
+import           Control.Arrow
+import           Control.Lens.Operators
+import           Control.Monad.IO.Class
 import           Control.Monad.Trans.Class
-import           Data.Aeson                 (encode, FromJSON, ToJSON)
+import           Data.Aeson                 (FromJSON, ToJSON, encode)
+import           Data.Aeson.Encode.Pretty
+import           Data.Aeson.Text
 import qualified Data.ByteString            as BS
 import qualified Data.ByteString.Char8      as C
 import qualified Data.ByteString.Lazy       as BL
@@ -16,19 +21,30 @@ import           Lib
 import           Test.WebDriver
 import           Test.WebDriver.Session
 import           Web.Scotty.Trans
+import qualified Data.Text.Encoding as TE
+import qualified Data.Text.Lazy.Encoding as TLE
 
-encodeToString :: ToJSON a => a -> String
-encodeToString = CL.unpack . encode
+wrapString :: String -> String -> String -> String
+wrapString l r x = l ++ x ++ r
+
+wrapLazyText :: TL.Text -> TL.Text -> TL.Text -> TL.Text
+wrapLazyText l r x = l `TL.append` x `TL.append` r
+
+encodePrettyToLazyText :: ToJSON a => a -> TL.Text
+encodePrettyToLazyText = encodePretty >>> TLE.decodeUtf8
+
+help :: ActionT TL.Text WD ()
+help = html "<html><body><a href='articles/previews'>article previews</a></body></html>"
 
 articlePreviews :: ActionT TL.Text WD ()
 articlePreviews = do
   previews <- lift extractArticlePreviews
-  let a = intercalate "\n" $ map encodeToString previews
-  text $ "got this for you:\n" <> TL.pack a
+  previews & encodePrettyToLazyText & text
 
 routes :: ScottyT TL.Text WD ()
 routes = do
-  get "/article-previews" articlePreviews
+  get "/" help
+  get "/articles/previews" articlePreviews
 
 startServer = startMyBrowser $ do
   sessionID <- getSession
